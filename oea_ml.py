@@ -9,93 +9,61 @@ Original file is located at
 **Import Necessary Libraries**
 """
 
-# Importing required libraries
 import pandas as pd
-import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-
-"""**Download and Read the Dataset**"""
-
-! unzip "archive (1).zip"
-
+# --- SAME PREPROCESSING AS RANDOM FOREST ---
 df = pd.read_csv("imdb_top_1000.csv")
 
-print(df)
+# Drop unused columns
+df = df.drop(['Poster_Link', 'Series_Title', 'Overview'], axis=1)
 
-"""**View Columns**"""
+# Handle missing values
+df = df.fillna(0)
+df.fillna("Unknown", inplace=True)
 
-# Drop duplicate rows
-df.drop_duplicates(inplace=True)
+# Create target column
+child_friendly = ['G', 'TV-Y', 'TV-G', 'PG', 'TV-Y7', 'U']
+df['is_child_friendly'] = df['Certificate'].apply(lambda x: 1 if x in child_friendly else 0)
 
-"""**Clean Data**"""
+# Features / Target
+X = df.drop(['is_child_friendly','Certificate'], axis=1)
+y = df['is_child_friendly']
 
-# Drop rows with missing values in important columns
-df.dropna(subset=['Certificate', 'IMDB_Rating', 'Meta_score', 'Runtime', 'Genre'], inplace=True)
+# Clean Runtime
+X['Runtime'] = X['Runtime'].astype(str).str.extract('(\d+)').astype(float)
 
-"""**Create Target Variable**
+# Clean Released Year
+X['Released_Year'] = pd.to_numeric(X['Released_Year'], errors='coerce')
 
-Assuming certificates like 'U' and 'PG' are child friendly
-"""
+# Clean Gross
+X['Gross'] = X['Gross'].astype(str).str.replace(',', '').str.replace('$', '').astype(float)
 
-# Convert Runtime to integer
-df['Runtime'] = df['Runtime'].str.extract('(\d+)').astype(float)
+# One-hot encode
+X_encoded = pd.get_dummies(X, drop_first=True)
 
-"""**Feature Selection**"""
+# --- TRAIN / TEST SPLIT ---
+X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.2, random_state=42)
 
-# Create binary label: 1 = child friendly, 0 = not
-child_labels = ['U', 'PG', 'TV-Y', 'TV-Y7', 'G', 'TV-G', 'UA']
-df['Child_Friendly'] = df['Certificate'].apply(lambda x: 1 if x in child_labels else 0)
-
-"""**Train Test Split**"""
-
-# Selecting features
-features = df[['IMDB_Rating', 'Meta_score', 'Runtime', 'Genre']]
-target = df['Child_Friendly']
-
-# Splitting the dataset
-X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
-
-"""**Logistic Regression Model**"""
-
-# Preprocessing: One-hot encode Genre, scale numeric features
-preprocessor = ColumnTransformer([
-    ('num', StandardScaler(), ['IMDB_Rating', 'Meta_score', 'Runtime']),
-    ('cat', OneHotEncoder(drop='first', handle_unknown='ignore'), ['Genre']) # handle_unknown='ignore' added here
-])
-
-"""**Prediction & Evaluation**"""
-
-# Logistic Regression with class balancing
-model = Pipeline([
-    ('pre', preprocessor),
-    ('clf', LogisticRegression(class_weight='balanced', max_iter=1000))
-])
-
-# Fit the model
+# --- LOGISTIC REGRESSION ---
+model = LogisticRegression(max_iter=1000)
 model.fit(X_train, y_train)
 
-"""**Scatter Plot**"""
-
-# Predictions
 y_pred = model.predict(X_test)
 
-# Accuracy & Metrics
-acc = accuracy_score(y_test, y_pred)
-print(f"Accuracy: {acc:.4f}")
+# --- METRICS ---
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy:.4f}")
 print("\nClassification Report:\n", classification_report(y_test, y_pred))
 print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
-#Visualization
-plt.figure(figsize=(10,6))
-sns.scatterplot(data=df, x='IMDB_Rating', y='Meta_score', hue='Child_Friendly', palette='coolwarm')
+# Visualization (optional)
+df['Runtime'] = df['Runtime'].astype(float)
+sns.scatterplot(data=df, x='IMDB_Rating', y='Meta_score', hue='is_child_friendly', palette='coolwarm')
 plt.title('IMDB Rating vs Meta Score by Child Friendliness')
 plt.xlabel('IMDB Rating')
 plt.ylabel('Meta Score')
