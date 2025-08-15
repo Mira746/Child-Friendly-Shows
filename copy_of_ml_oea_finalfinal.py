@@ -11,68 +11,52 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-! unzip "movies.zip"
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier, export_graphviz
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import pydotplus
+from six import StringIO
+from IPython.display import Image
 
+# --- Load Data ---
 df = pd.read_csv('imdb_top_1000.csv')
 
-# Define target column based on Certificate
-def is_child_friendly(Certificate):
-    return 1 if Certificate in ['U', 'UA'] else 0
+# --- SAME PREPROCESSING AS LOGISTIC REGRESSION ---
+df = df.drop(['Poster_Link', 'Series_Title', 'Overview'], axis=1)
 
-df['Is_child_friendly'] = df['Certificate'].apply(is_child_friendly)
+df = df.fillna(0)
+df.fillna("Unknown", inplace=True)
 
-# Clean 'Runtime' column
-df['Runtime'] = df['Runtime'].str.replace(r'\s*mins?$', '', regex=True).astype(int)
+child_friendly = ['G', 'TV-Y', 'TV-G', 'PG', 'TV-Y7', 'U']
+df['is_child_friendly'] = df['Certificate'].apply(lambda x: 1 if x in child_friendly else 0)
 
-print(df)
+X = df.drop(['is_child_friendly','Certificate'], axis=1)
+y = df['is_child_friendly']
 
-df.head()
+X['Runtime'] = X['Runtime'].astype(str).str.extract('(\d+)').astype(float)
+X['Released_Year'] = pd.to_numeric(X['Released_Year'], errors='coerce')
+X['Gross'] = X['Gross'].astype(str).str.replace(',', '').str.replace('$', '').astype(float)
 
-x = df[['Runtime', 'Genre', 'IMDB_Rating']]
-y = df['Is_child_friendly']
+X_encoded = pd.get_dummies(X, drop_first=True)
 
-print(x)
+# --- TRAIN / TEST SPLIT ---
+X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.2, random_state=42)
 
-print(y)
+# --- DECISION TREE ---
+classifier = DecisionTreeClassifier(random_state=42)
+classifier.fit(X_train, y_train)
+y_pred = classifier.predict(X_test)
 
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
-
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-
-ct = ColumnTransformer(
-    [('onehot', OneHotEncoder(sparse_output=False, handle_unknown='ignore'), ['Genre']),
-     ('scaler', StandardScaler(), ['Runtime', 'IMDB_Rating'])],
-    remainder='drop'
-)
-
-# Transform the data
-x_train = ct.fit_transform(x_train)
-x_test = ct.transform(x_test)
-
-print(x_train)
-
-print(x_test)
-
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+# --- METRICS ---
 print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
 print("\nClassification Report:\n", classification_report(y_test, y_pred))
 print("Accuracy:", accuracy_score(y_test, y_pred))
 
-!pip install six
-from six import StringIO
-from IPython.display import Image
-import pydotplus
-from sklearn.tree import export_graphviz
-
-onehot_columns = list(ct.named_transformers_['onehot'].get_feature_names_out(['Genre']))
-numeric_features = ['Runtime', 'IMDB_Rating']
-all_features = onehot_columns + numeric_features
-
+# --- VISUALIZE DECISION TREE ---
+feature_names = list(X_encoded.columns)
 data = StringIO()
 export_graphviz(classifier, out_file=data, filled=True, rounded=True,
-                special_characters=True, feature_names=all_features,
-                class_names=['0', '1'])
+                special_characters=True, feature_names=feature_names,
+                class_names=['Not Child Friendly', 'Child Friendly'])
 graph = pydotplus.graph_from_dot_data(data.getvalue())
 Image(graph.create_png())
